@@ -1,0 +1,13 @@
+<?ml version="1.0"?>
+<pkcs11-tls-proxy>
+	<client>
+		<ListenHost>127.0.0.1</ListenHost>
+		<ListenPort>8000</ListenPort>
+		<RemoteHost>127.0.0.1</RemoteHost>
+		<RemotePort>8001</RemotePort>
+		<CACertFile>/home/cpruefer/Documents/webcodex/cacert.webcodex.de.CA.crt</CACertFile>
+		<CertFile>/home/cpruefer/Documents/webcodex/pruefer.secmail.webcodex.de.Client.crt</CertFile>
+		<CardSlot>1</CardSlot>
+		<ContainerId>1</ContainerId>
+	</client>
+</pkcs11-tls-proxy>

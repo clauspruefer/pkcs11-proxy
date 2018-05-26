@@ -1,0 +1,12 @@
+<?ml version="1.0"?>
+<pkcs11-tls-proxy>
+	<server>
+		<ListenHost>127.0.0.1</ListenHost>
+		<ListenPort>8001</ListenPort>
+		<ProxyHost>127.0.0.1</ProxyHost>
+		<ProxyPort>25</ProxyPort>
+		<CACertFile>/home/cpruefer/Documents/webcodex/cacert.webcodex.de.CA.crt</CACertFile>
+		<CertFile>/home/cpruefer/Documents/webcodex/mx01.sec.webcodex.de.Server.crt</CertFile>
+		<KeyFile>/home/cpruefer/Documents/webcodex/mx01.sec.webcodex.de.Server.key</KeyFile>
+	</server>
+</pkcs11-tls-proxy>
