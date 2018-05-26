@@ -3,6 +3,7 @@
 #include "../lib/Config.cpp"
 #include "../lib/Filedescriptor.cpp"
 #include "../lib/Socket.cpp"
+#include "../lib/SSLHandshake.cpp"
 #include "../lib/SSLSocket.cpp"
 #include "../lib/Connection.cpp"
 #include "../lib/Timeout.cpp"
@@ -16,6 +17,9 @@ int main()
     cout << "### >> ---------------------------------------------------------------" << endl;
     cout << "### >> TLS PKCS11 Proxy (Client component)" << endl;
     cout << "### >> ---------------------------------------------------------------" << endl;
+
+    //- disable signals
+    System::disableSignals();
 
     //- process xml configuration
     Config::setup();
@@ -38,11 +42,11 @@ int main()
 
     DBG(10, "Wait for client connection.");
 
-    //- wait for client connection
+    //- initiate new client connection
     ServerConn.connectClient();
-    ServerConn.connectClientSSL();
-    ServerConn.SSLHandshake();
 
+    //- do ssl handshake
+    ServerConn.doClientHandshake();
 
     //- ---------------------------------------------------------------------------
     //- setup timeouts
@@ -73,14 +77,22 @@ int main()
     bool RunClient = true;
     while (RunClient == true) {
 
-        DBG(200, "Enter client loop. Try setting up client connection (accept).");
-
-        unique_ptr<Filedescriptor> ClientFDObj(LocalConn.setupClientConnection());
+        DBG(200, "Enter client loop. Waiting for new connection (accept).");
 
         //- setup new connection on accept
-        if (ClientFDObj->MainFD > 0) {
+        int ClientFD = LocalConn.setupClientConnection();
+        if (ClientFD > 0) {
 
-            DBG(40, "Accepted client connection FDNr:" << ClientFDObj->MainFD << ".");
+            DBG(40, "Accepted client connection FDNr:" << ClientFD << ".");
+
+            //- setup new fd object
+            Filedescriptor *FDObj = new Filedescriptor();
+
+            //- set fd in fd object
+            FDObj->setFD(ClientFD);
+
+            //- setup unique
+            unique_ptr<Filedescriptor> ClientFDObj(FDObj);
 
             //- generate client uuid
             string UUID = UUID::generateUUID();
@@ -110,12 +122,12 @@ int main()
             ServerConn.Received.clear();
 
             //- get client filedescriptor integer
-            string ClientUUID = ServerData.substr(0,UUID_SIZE);
+            string ClientUUID = ServerData.substr(0, UUID_SIZE);
 
-            DBG(50, "Received data for UUID:" << ClientUUID << " from Server:'" << ServerData << "'");
+            DBG(200, "Received data for UUID:" << ClientUUID << " from Server:'" << ServerData << "'");
 
-            //- remove first two bytes from send data
-            ServerData.erase(0,UUID_SIZE);
+            //- remove uuid from send data
+            ServerData.erase(0, UUID_SIZE);
 
             //- get fd object from connection map (locked)
             shared_ptr<Filedescriptor> FDObj(ConnHandler->get(ClientUUID));
@@ -131,17 +143,33 @@ int main()
                     //- remove fdobject from map
                     ConnHandler->erase(ClientUUID);
                 }
+
+                //- data
                 else {
-                    DBG(50, "Send data for UUID:" << ClientUUID << " FDNr:" << FDObj->MainFD << " to local socket:'" << ServerData << "'");
+                    DBG(200, "Send data for UUID:" << ClientUUID << " FDNr:" << FDObj->MainFD << " to local socket:'" << ServerData << "'");
                     FDObj->sendData(ServerData);
                 }
             }
+
+            //- check rekey interval timeout reached
+            if (TimeoutRekeyObj.checkTimeoutReached() == true) {
+
+                DBG(50, "Rekey timeout reached.");
+
+                //- reset timeout
+                TimeoutRekeyObj.reset();
+
+                //- renegotiate connection
+                ServerConn.renegotiate();
+
+            }
+
         }
 
         //- check keepalive package interval timeout reached
         if (TimeoutKeepaliveObj.checkTimeoutReached() == true) {
 
-            DBG(50, "Keepalive Package Timeout reached. Send Keepalive Package.");
+            DBG(50, "Keepalive Package timeout reached. Send Keepalive Package.");
 
             //- reset timeout
             TimeoutKeepaliveObj.reset();
@@ -151,28 +179,20 @@ int main()
             SendData << UUID::generateUUID() << string(PROXY_CMD_KEEPALIVE);
 
             ServerConn.lock();
-            ServerConn.sendDataChunk(SendData.str());
+
+            if (ServerConn.sendDataChunk(SendData.str()) == false) {
+                DBG(40, "Send keepalive packet failed, terminate client.");
+                RunClient = false;
+            }
+
             ServerConn.unlock();
-
-        }
-
-        //- check rekey interval timeout reached
-        if (TimeoutRekeyObj.checkTimeoutReached() == true) {
-
-            DBG(50, "Rekey timeout reached.");
-
-            //- reset timeout
-            TimeoutRekeyObj.reset();
-
-            //- renegotiate connection
-            ServerConn.SSLRenegotiate();
 
         }
 
         //- close connection
         if (ServerConn.CloseConnection) {
-            DBG(40, "Server closed tunnel connection. Exiting.");
-            exit(0);
+            DBG(40, "Closing local ssl tunnel connection, terminate.");
+            RunClient = false;
         }
 
         //- sleep to keep cpu time idle
@@ -183,5 +203,6 @@ int main()
     //- release ssl socket memory
     ServerConn.free();
 
+    DBG(40, "Terminating client.");
     return 0;
 }

@@ -37,7 +37,7 @@ class Socket
      virtual void waitClientConnection();
      virtual void connectClient();
      virtual void recvSocketDataRaw();
-     virtual Filedescriptor* setupClientConnection();
+     virtual int setupClientConnection();
 
      virtual void setFDNonblocking(int);
      virtual void setSocketFDNonblocking();

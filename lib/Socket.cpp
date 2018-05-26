@@ -14,7 +14,6 @@ Socket::Socket(const string Address, const uint16_t Port) :
 Socket::~Socket()
 {
     DBG(200, "Socket Destructor called.");
-
 }
 
 void Socket::setupSocket()
@@ -78,12 +77,12 @@ void Socket::setupServer()
 
 void Socket::waitClientConnection()
 {
-    while (this->setupClientConnection()->MainFD <= 0) {
-        this_thread::sleep_for(chrono::milliseconds(100));
+    while (this->setupClientConnection() <= 0) {
+        this_thread::sleep_for(chrono::milliseconds(SERVER_WAIT_CONNECTION_SLEEP_INTERVAL_MSEC));
     }
 }
 
-Filedescriptor* Socket::setupClientConnection()
+int Socket::setupClientConnection()
 {
     DBG(200, "Socket setupClientConnection() called.");
 
@@ -92,25 +91,18 @@ Filedescriptor* Socket::setupClientConnection()
 
     ClientFD = accept(SocketFD, (struct sockaddr*)&ClientAddr, (socklen_t*)&ClientAddrLen);
 
-    //- setup new fd object
-    Filedescriptor *FDObj = new Filedescriptor();
-
     if (ClientFD > 0) {
         DBG(200, "Socket setupClientConnection() accepted ClientFD:" << ClientFD);
-
-        //- set fd in fd object
-        FDObj->setFD(ClientFD);
-
     }
 
     if (ClientFD == -1) {
         DBG(200, "Accept Error:" << strerror(errno));
     }
 
-    //- set fd public member
+    //- set fd for server accept
     ServerAcceptedFD = ClientFD;
 
-    return FDObj;
+    return ClientFD;
 }
 
 void Socket::connectClient()
@@ -127,7 +119,7 @@ void Socket::connectClient()
         }
 
         if (rc == -1) {
-            DBG(200, "Connect Error:" << strerror(errno));
+            DBG(10, "Connect Error:" << strerror(errno));
             sleep(1);
         }
     }

@@ -1,0 +1,12 @@
+<?ml version="1.0"?>
+<pkcs11-tls-proxy>
+	<client>
+		<ListenHost>127.0.0.1</ListenHost>
+		<ListenPort>8001</ListenPort>
+		<RemoteHost>127.0.0.1</RemoteHost>
+		<RemotePort>25</RemotePort>
+		<CACertFile>/home/cpruefer/Projects/wcdx-pkcs11-tls-proxy/test.functional/certs/cacert.webcodex.de.CA.crt</CACertFile>
+		<CertFile>/home/cpruefer/Projects/wcdx-pkcs11-tls-proxy/test.functional/certs/mx01.sec.webcodex.de.Server.crt</CertFile>
+		<KeyFile>/home/cpruefer/Projects/wcdx-pkcs11-tls-proxy/test.functional/certs/mx01.sec.webcodex.de.Server.key</KeyFile>
+	</client>
+</pkcs11-tls-proxy>

@@ -1,6 +1,8 @@
 #ifndef Filedesc_hpp
 #define Filedesc_hpp
 
+#include "Constant.hpp"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>

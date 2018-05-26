@@ -1,6 +1,13 @@
 #ifndef SSLSocket_hpp
 #define SSLSocket_hpp
 
+#include "Helper.hpp"
+#include "Socket.hpp"
+#include "SSLHandshake.hpp"
+#include "Timeout.hpp"
+
+#include "Config.hpp"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
@@ -28,25 +35,23 @@ class SSLSocket: public Socket
      SSLSocket(const string, const uint16_t);
      ~SSLSocket();
 
+     void doClientHandshake();
+     bool doServerHandshake();
+     void doServerHandshakeLoop();
+
+     void shutdown();
+     void renegotiate();
+
      void setupSSLEngine();
      void setupSSL();
-     void acceptServerSSL();
-     void connectClientSSL();
      void ProxyHandshake(const string);
-     void SSLHandshake();
-     void SSLShutdown();
-     void SSLRenegotiate();
      void recvDataChunk();
-     void sendDataChunk(const string);
+     bool sendDataChunk(const string);
+
      void resetRecvBuffer();
      void free();
      void lock();
      void unlock();
-
-     SSL *SSLConnection;
-
-     //int RecvBytes;
-     //int SendBytes;
 
      string Received;
 
@@ -58,11 +63,17 @@ class SSLSocket: public Socket
      mutex SendLock;
 
      SSL_CTX* SSLContext;
+     SSL *SSLConnection;
+
      ENGINE* PKCS11Engine;
 
      EVP_PKEY* PrivkeyPointer;
 
      char RecvBuffer[TMP_BUFFER_SIZE];
+
+     SSLHandshake *Handshake;
+
+     Timeout TimeoutSendObj;
 
 };
 

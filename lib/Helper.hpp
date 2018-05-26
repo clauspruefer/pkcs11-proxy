@@ -9,6 +9,7 @@
 #include <uuid/uuid.h>
 
 #include <string>
+#include <csignal>
 
 
 using namespace std;
@@ -33,12 +34,13 @@ public:
         }
 
         uint16_t output;
-        void* WriteAddress = &output;
+        void* WriteAddressByte1 = &output;
+        void* WriteAddressByte2 = &output+1;
 
-        *(unsigned char*)WriteAddress = input.at(0);
-        *(unsigned char*)(WriteAddress+1) = input.at(1);
+        *static_cast<unsigned char*>(WriteAddressByte1) = input.at(0);
+        *static_cast<unsigned char*>(WriteAddressByte2) = input.at(1);
 
-        return (int)output;
+        return static_cast<int>(output);
     }
 
 };
@@ -59,6 +61,21 @@ class UUID {
 
         return StringUUID;
     }
+};
+
+class System {
+
+    public:
+
+    static void disableSignals()
+    {
+        signal(SIGHUP,  SIG_IGN);
+        signal(SIGQUIT, SIG_IGN);
+        signal(SIGPIPE, SIG_IGN);
+        signal(SIGILL,  SIG_IGN);
+        signal(SIGABRT, SIG_IGN);
+    }
+
 };
 
 #endif

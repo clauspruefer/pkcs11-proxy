@@ -75,7 +75,9 @@ public:
 
     void clear()
     {
+        ConnectionLock.lock();
         Connections.clear();
+        ConnectionLock.unlock();
     }
 
 };

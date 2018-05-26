@@ -38,10 +38,19 @@ void Server::processClient(const string ClientUUID, shared_ptr<Connection<Socket
 
             SendData << ClientUUID << LocalConn->SocketFDObj.Received;
 
+            bool SendError = false;
+
             ServerConn->lock();
-            ServerConn->sendDataChunk(SendData.str());
+
+            if (ServerConn->sendDataChunk(SendData.str()) == false) {
+                SendError = true;
+            }
+
             ServerConn->unlock();
 
+            if (SendError == true) {
+                break;
+            }
         }
 
         if (LocalConn->SocketFDObj.CloseConnection) {
@@ -64,12 +73,14 @@ void Server::processClient(const string ClientUUID, shared_ptr<Connection<Socket
 
     }
 
-    DBG(40, "Closing local connection due to endpoint close or timeout.");
+    DBG(40, "Closing local connection.");
 
     LocalConn->SocketFDObj.closeFD();
 
-    DBG(40, "Removing connection from internal memory. Exit thread.");
+    DBG(40, "Removing connection from internal memory.");
 
     Connection->erase(ClientUUID);
+
+    DBG(40, "Exit thread.");
 
 }

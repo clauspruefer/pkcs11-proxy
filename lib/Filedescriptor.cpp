@@ -1,4 +1,3 @@
-#include "Constant.hpp"
 #include "Filedescriptor.hpp"
 
 using namespace std;
@@ -78,7 +77,7 @@ void Filedescriptor::sendData(const string Data)
     if (closed) { return; }
 
     while (checkFDwriteable() == false) {
-        //cout << "check fd writeable" << endl;
+        DBG(200, "File Descriptor not writeable");
     }
 
     SendBytes = send(MainFD, Data.c_str(), Data.length(), 0);
@@ -103,7 +102,6 @@ void Filedescriptor::recvDataRaw()
     RecvBytes = recv(MainFD, RecvBuffer, TMP_BUFFER_SIZE, 0);
 
     if (RecvBytes > 0) {
-
         DataReceived = true;
         Received.append(RecvBuffer, RecvBytes);
     }

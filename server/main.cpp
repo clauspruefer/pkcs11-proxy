@@ -1,8 +1,10 @@
 #include "Server.hpp"
 
 #include "../lib/Config.cpp"
+#include "../lib/Helper.hpp"
 #include "../lib/Filedescriptor.cpp"
 #include "../lib/Socket.cpp"
+#include "../lib/SSLHandshake.cpp"
 #include "../lib/SSLSocket.cpp"
 #include "../lib/Connection.cpp"
 #include "../lib/Timeout.cpp"
@@ -17,6 +19,9 @@ int main()
     cout << "### >> TLS PKCS11 Proxy (Server component)" << endl;
     cout << "### >> ---------------------------------------------------------------" << endl;
 
+    //- disable signals
+    System::disableSignals();
+
     //- process xml configuration
     Config::setup();
 
@@ -27,13 +32,14 @@ int main()
     ServerConn.setupServer();
     ServerConn.setSocketFDNonblocking();
 
-    //- wait for client ssl connection
-    DBG(10, "Waiting for SSL client connection.");
+    //- wait for new socket connection
+    DBG(10, "Waiting for new connection (socket).");
 
     ServerConn.waitClientConnection();
     ServerConn.setServerAcceptedFDNonblocking();
-    ServerConn.acceptServerSSL();
-    ServerConn.SSLHandshake();
+
+    //- do ssl handshake
+    ServerConn.doServerHandshakeLoop();
 
     DBG(10, "SSL handshake completed.");
 
@@ -49,6 +55,11 @@ int main()
 
     TimeoutObj.setTimeoutBlocking(false);
     TimeoutObj.setTimeout(SERVER_IDLE_INTERVAL_SEC, 0);
+
+    Timeout TimeoutObjKeepalive;
+
+    TimeoutObjKeepalive.setTimeoutBlocking(false);
+    TimeoutObjKeepalive.setTimeout(SSLSOCKET_KEEPALIVE_PACKAGE_INTERVAL_SEC, 0);
 
 
     //- ---------------------------------------------------------------------------
@@ -71,17 +82,14 @@ int main()
 
         if (ServerConn.ChunkEndReached) {
 
-            //- reset server idle timeout
-            TimeoutObj.reset();
-
             //- process received data
             string ServerData = ServerConn.Received;
 
             //- get client filedescriptor integer
-            string ClientUUID = ServerData.substr(0,UUID_SIZE);
+            string ClientUUID = ServerData.substr(0, UUID_SIZE);
 
             //- remove first two bytes from send data
-            ServerData.erase(0,UUID_SIZE);
+            ServerData.erase(0, UUID_SIZE);
 
             if (ServerData.compare(PROXY_CMD_NEW_CONNECTION) == 0) {
 
@@ -102,7 +110,12 @@ int main()
             }
 
             else if (ServerData.compare(PROXY_CMD_KEEPALIVE) == 0) {
+
                 DBG(40, "Client keepalive received. Dummy ClientUUID:" << ClientUUID);
+
+                //- reset server idle timeout
+                TimeoutObj.reset();
+
             }
 
             else if (ServerData.compare(PROXY_CMD_CLOSE_CONNECTION) == 0) {
@@ -119,7 +132,7 @@ int main()
 
             else {
 
-                DBG(40, "Client data for existant client connection received. ClientUUID:" << ClientUUID);
+                DBG(40, "Client data for existent client connection received. ClientUUID:" << ClientUUID);
 
                 shared_ptr<Socket> SocketObj(ClientConnections->get(ClientUUID));
                 if (SocketObj > 0) {
@@ -134,6 +147,12 @@ int main()
 
         }
 
+        //- on server idle timeout, initiate server reset (wait new connection)
+        if (TimeoutObj.checkTimeoutReached() == true) {
+            DBG(50, "Server idle timeout reached.");
+            ServerConn.CloseConnection = true;
+        }
+
         //- if client close connection received
         if (ServerConn.CloseConnection) {
 
@@ -142,29 +161,54 @@ int main()
             //- reset client connection map
             ClientConnections->clear();
 
-            //- wait for new ssl client connection
+            //- sleep a bit
+            this_thread::sleep_for(chrono::seconds(1));
+
+            //- wait for new socket connection
             ServerConn.waitClientConnection();
             ServerConn.setServerAcceptedFDNonblocking();
-            ServerConn.acceptServerSSL();
-            ServerConn.SSLHandshake();
+
+            //- do ssl handshake
+            ServerConn.doServerHandshakeLoop();
 
             DBG(10, "SSL handshake completed.");
 
             ServerConn.resetRecvBuffer();
             ServerConn.ChunkEndReached = false;
 
+            //- reset server idle timeout
+            TimeoutObj.reset();
+
         }
 
-        //- on server idle timeout, initiate server reset (wait new connection)
-        if (TimeoutObj.checkTimeoutReached() == true) {
-            DBG(50, "Server idle timeout reached.");
-            ServerConn.CloseConnection = true;
+        //- send keepalive to client
+        else if (TimeoutObjKeepalive.checkTimeoutReached() == true) {
+
+            DBG(40, "Send keepalive to client.");
+
+            TimeoutObjKeepalive.reset();
+
+            stringstream SendData;
+            SendData << UUID::generateUUID() << string(PROXY_CMD_KEEPALIVE);
+
+            ServerConn.lock();
+
+            if (ServerConn.sendDataChunk(SendData.str()) == false) {
+                DBG(40, "Send keepalive failed, closing ssl tunnel connection.");
+                ServerConn.CloseConnection = true;
+            }
+
+            ServerConn.unlock();
+
         }
 
         //- sleep to keep cpu time idle
         this_thread::sleep_for(chrono::milliseconds(1));
 
     }
+
+    //- shutdown ssl connection
+    ServerConn.shutdown();
 
     //- release ssl socket memory
     ServerConn.free();

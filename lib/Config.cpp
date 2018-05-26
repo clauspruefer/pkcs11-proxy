@@ -1,4 +1,3 @@
-#include "Constant.hpp"
 #include "Config.hpp"
 
 using namespace std;
@@ -25,7 +24,7 @@ void Config::setup()
     XMLDocument = xmlParseFile(CONFIG_FILE);
 
     if (XMLDocument == NULL) {
-        cout << "Config file not readable." << endl;
+        cout << "Config file not readable" << endl;
         exit(EXIT_FAILURE);
     }
 
@@ -34,7 +33,7 @@ void Config::setup()
     Element = xmlDocGetRootElement(XMLDocument);
 
     if (Element == NULL) {
-        cout << "No Root XML Element found." << endl;
+        cout << "No Root XML Element found" << endl;
         exit(EXIT_FAILURE);
     }
 
@@ -72,8 +71,6 @@ void Config::parseClientSettings(xmlDocPtr XMLDocument, xmlNodePtr Element)
     Element = Element->xmlChildrenNode;
 
     while (Element != NULL) {
-
-        //cout << "Element:" << Element->name << endl;
 
         char const *res = "";
 
@@ -135,8 +132,6 @@ void Config::parseServerSettings(xmlDocPtr XMLDocument, xmlNodePtr Element)
     Element = Element->xmlChildrenNode;
 
     while (Element != NULL) {
-
-        //cout << "Element:" << Element->name << endl;
 
         char const *res = "";
 

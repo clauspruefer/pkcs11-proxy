@@ -1,8 +1,5 @@
 #include <errno.h>
 
-#include "Helper.hpp"
-#include "Config.hpp"
-#include "Socket.hpp"
 #include "SSLSocket.hpp"
 
 
@@ -12,15 +9,25 @@ SSLSocket::SSLSocket(const string Address, const uint16_t ListenPort) :
     Socket(Address, ListenPort),
     CloseConnection(false),
     ChunkEndReached(false),
-    PrivkeyPointer(NULL)
+    PrivkeyPointer(NULL),
+    Handshake(new SSLHandshake())
+
 {
-    cout << "SSLSocket Constructor called." << endl;
+    DBG(200, "SSLSocket Constructor called.");
+
+    //- reset receive buffer
     resetRecvBuffer();
+
+    //- init send timeout
+    TimeoutSendObj.setTimeoutBlocking(false);
+    TimeoutSendObj.setTimeout(SSL_SOCKET_SEND_TIMEOUT_SEC, 0);
+
 }
 
 SSLSocket::~SSLSocket()
 {
-    cout << "SSLSocket Destructor called." << endl;
+    DBG(200, "SSLSocket Destructor called.");
+    delete Handshake;
 }
 
 void SSLSocket::setupSSLEngine()
@@ -38,23 +45,27 @@ void SSLSocket::setupSSLEngine()
         exit(EXIT_FAILURE);
     }
 
-    ENGINE_load_dynamic();
+    string EngineLib(OPENSSL_OPENSC_ENGINE_PKCS11_LIBRARY);
+    string OpenSCLib(OPENSC_ENGINE_PKCS11_LIBRARY);
 
-    ENGINE_ctrl_cmd_string(PKCS11Engine, "SO_PATH", "/usr/local/lib/engines/engine_pkcs11.so", 0);
+    ENGINE_ctrl_cmd_string(PKCS11Engine, "SO_PATH", EngineLib.c_str(), 0);
     ENGINE_ctrl_cmd_string(PKCS11Engine, "ID", "pkcs11", 0);
     ENGINE_ctrl_cmd_string(PKCS11Engine, "LIST_ADD", "1", 0);
     ENGINE_ctrl_cmd_string(PKCS11Engine, "LOAD", NULL, 0);
-    ENGINE_ctrl_cmd_string(PKCS11Engine, "MODULE_PATH", "/usr/local/lib/opensc-pkcs11.so", 0);
+    ENGINE_ctrl_cmd_string(PKCS11Engine, "MODULE_PATH", OpenSCLib.c_str(), 0);
+
+    DBG(40, "OpenSSL Engine Library:" << EngineLib);
+    DBG(40, "OpenSC PKCS Library:" << OpenSCLib);
 
     int rc = ENGINE_init(PKCS11Engine);
-    cout << "Engine init result:" << rc << endl;
+    DBG(100, "Engine init result:" << rc);
 
     const char* LoadedEngineID = ENGINE_get_id(PKCS11Engine);
-    cout << "Loaded engine with id:" << LoadedEngineID << endl;
+    DBG(100, "Loaded engine with id:" << LoadedEngineID);
 
     ENGINE_set_default(PKCS11Engine, ENGINE_METHOD_RSA | ENGINE_METHOD_ECDSA | ENGINE_METHOD_ECDH);
 
-    const char *Prompt = "Enter SmCloseConnection = false;artcard User PIN:";
+    const char *Prompt = "Enter User PIN:";
 
     string UserPin(getpass(Prompt));
 
@@ -96,8 +107,10 @@ void SSLSocket::setupSSL()
 
     //- setup server SSL context
     if (Config::Type == "server") {
+
         //- set server method
         SSLContext = SSL_CTX_new(TLSv1_2_server_method());
+
         //- enable client cert verification
         SSL_CTX_set_verify(SSLContext, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
 
@@ -105,7 +118,7 @@ void SSLSocket::setupSSL()
 
     //- add ciphers
     int Ciphers = SSL_CTX_set_cipher_list(SSLContext, "HIGH");
-    cout << "SSL setup ciphers rc:" << Ciphers << endl;
+    DBG(100, "SSL setup ciphers rc:" << Ciphers);
 
     //- disable compression
     SSL_CTX_set_options(SSLContext, SSL_OP_NO_COMPRESSION);
@@ -116,6 +129,9 @@ void SSLSocket::setupSSL()
     //- disable dtls
     SSL_CTX_set_options(SSLContext, SSL_OP_NO_DTLSv1);
     SSL_CTX_set_options(SSLContext, SSL_OP_NO_DTLSv1_2);
+
+    //- set quite shutdown
+    SSL_CTX_set_quiet_shutdown(SSLContext, 1);
 
     if (Config::Type == "server") {
 
@@ -154,184 +170,21 @@ void SSLSocket::setupSSL()
 
 }
 
-void SSLSocket::acceptServerSSL()
-{
-
-    DBG(100, "SSLSocket::acceptServerSSL().");
-
-    SSLConnection = SSL_new(SSLContext);
-    SSL_set_fd(SSLConnection, ServerAcceptedFD);
-
-    bool completedHandshake = false;
-    while (completedHandshake == false) {
-
-        DBG(200, "Handshake loop.");
-
-        int rc = SSL_accept(SSLConnection);
-        int result = SSL_get_error(SSLConnection, rc);
-
-        DBG(200, "Result:" << result << " errror:" << strerror(errno));
-
-        switch(result) {
-
-            case SSL_ERROR_NONE :
-                DBG(40, "SSL handshake (accept) completed.");
-                completedHandshake = true;
-
-            case SSL_ERROR_ZERO_RETURN :
-                DBG(40, "SSL accept aborted.");
-
-            case SSL_ERROR_WANT_ACCEPT :
-                DBG(40, "SSL accept continue.");
-
-        }
-    }
-}
-
-void SSLSocket::SSLHandshake()
-{
-
-    DBG(100, "SSLSocket::SSLHandshake().");
-
-    bool completedHandshake = false;
-    while (completedHandshake == false) {
-
-        DBG(200, "Handshake loop.");
-
-        int rc = SSL_do_handshake(SSLConnection);
-        int result = SSL_get_error(SSLConnection, rc);
-
-        DBG(200, "Result:" << result << " errror:" << strerror(errno));
-
-        switch(result) {
-
-            case SSL_ERROR_NONE :
-                DBG(40, "SSL handshake (connect) completed.");
-                completedHandshake = true;
-
-            case SSL_ERROR_ZERO_RETURN :
-                DBG(40, "SSL connect aborted.");
-
-            case SSL_ERROR_WANT_CONNECT :
-                DBG(40, "SSL connect continue.");
-
-        }
-
-    }
-}
-
-void SSLSocket::SSLShutdown()
-{
-
-    DBG(100, "SSLSocket::SSLShutdown().");
-
-    bool HandshakeCompleted = false;
-    while (HandshakeCompleted == false) {
-
-        DBG(200, "Handshake loop.");
-
-        int rc = SSL_shutdown(SSLConnection);
-        int result = SSL_get_error(SSLConnection, rc);
-
-        DBG(200, "Result:" << result << " errror:" << strerror(errno));
-
-        switch(result) {
-
-            case SSL_ERROR_NONE :
-                DBG(40, "SSL handshake (connect) completed.");
-                HandshakeCompleted = true;
-
-            case SSL_ERROR_ZERO_RETURN :
-                DBG(40, "SSL connect aborted.");
-
-            case SSL_ERROR_WANT_CONNECT :
-                DBG(40, "SSL connect continue.");
-
-        }
-
-    }
-
-}
-
-void SSLSocket::SSLRenegotiate()
-{
-
-    DBG(100, "SSLSocket::SSLRenegotiate().");
-
-    bool HandshakeCompleted = false;
-    while (HandshakeCompleted == false) {
-
-        DBG(200, "Handshake loop.");
-
-        int rc = SSL_renegotiate(SSLConnection);
-        int result = SSL_get_error(SSLConnection, rc);
-
-        DBG(200, "Result:" << result << " errror:" << strerror(errno));
-
-        switch(result) {
-
-            case SSL_ERROR_NONE :
-                DBG(40, "SSL handshake (connect) completed.");
-                HandshakeCompleted = true;
-
-            case SSL_ERROR_ZERO_RETURN :
-                DBG(40, "SSL connect aborted.");
-
-            case SSL_ERROR_WANT_CONNECT :
-                DBG(40, "SSL connect continue.");
-
-        }
-
-    }
-
-}
-
-void SSLSocket::connectClientSSL()
-{
-
-    DBG(100, "SSLSocket::connectClientSSL().");
-
-    SSLConnection = SSL_new(SSLContext);
-    SSL_set_fd(SSLConnection, SocketFD);
-
-    bool HandshakeCompleted = false;
-    while (HandshakeCompleted == false) {
-
-        DBG(200, "Handshake loop.");
-
-        int rc = SSL_connect(SSLConnection);
-        int result = SSL_get_error(SSLConnection, rc);
-
-        DBG(200, "Result:" << result << " errror:" << strerror(errno));
-
-        switch(result) {
-
-            case SSL_ERROR_NONE :
-                DBG(40, "SSL handshake (connect) completed.");
-                HandshakeCompleted = true;
-
-            case SSL_ERROR_ZERO_RETURN :
-                DBG(40, "SSL connect aborted.");
-
-            case SSL_ERROR_WANT_CONNECT :
-                DBG(40, "SSL connect continue.");
-
-        }
-
-    }
-}
-
 void SSLSocket::ProxyHandshake(string ClientID) {
+
     stringstream SendData;
+
     SendData << ClientID << string(PROXY_CMD_NEW_CONNECTION);
-    sendDataChunk(SendData.str());
+
+    if (sendDataChunk(SendData.str()) == false) {
+        DBG(10, "Proxy handshake send failed.");
+        exit(EXIT_FAILURE);
+    }
+
 }
 
-void SSLSocket::sendDataChunk(const string Data)
+bool SSLSocket::sendDataChunk(const string Data)
 {
-
-    DBG(200, "SSLSocket::sendDataChunk().");
-    DBG(150, "Input Data:" << Data);
 
     string SendData;
 
@@ -339,23 +192,36 @@ void SSLSocket::sendDataChunk(const string Data)
     SendData.append(Data);
     SendData.append(string(PAYLOAD_MARKER_POSTFIX));
 
+    //- reset send timeout
+    TimeoutSendObj.reset();
+
     while (true) {
 
         int SendBytes = SSL_write(SSLConnection, SendData.c_str(), SendData.length());
         int SendResult = SSL_get_error(SSLConnection, SendBytes);
 
-	DBG(150, "Bytes:" << SendBytes << " ResultCode:" << SendResult << " ResultError:" << strerror(SendResult));
-	if (SendResult == 0) { break; }
+        DBG(200, "Bytes:" << SendBytes << " ResultCode:" << SendResult << " ResultError:" << strerror(SendResult));
+
+        //- on success break
+        if (SendResult == 0) { break; }
+
+        //- on error sleep
+        else {
+            this_thread::sleep_for(chrono::milliseconds(ERROR_SLEEP_INTERVAL_MSEC));
+        }
+
+        //- check timeout reached
+        if (TimeoutSendObj.checkTimeoutReached() == true) {
+            return false;
+        }
+
     }
 
-    DBG(150, "Sent Data:" << SendData);
-
+    return true;
 }
 
 void SSLSocket::recvDataChunk()
 {
-
-    DBG(200, "recvDataChunkSSL()");
 
     CloseConnection = false;
 
@@ -376,7 +242,8 @@ void SSLSocket::recvDataChunk()
     }
 
     if (result == SSL_ERROR_SYSCALL || result == SSL_ERROR_SSL) {
-        DBG(40, "SSLSocket.recvDataChunk() SSL_ERROR_SYSCALL or SSL_ERROR_SSL error:" << strerror(errno));
+        DBG(120, "SSLSocket.recvDataChunk() SSL_ERROR_SYSCALL or SSL_ERROR_SSL error:" << strerror(errno));
+        this_thread::sleep_for(chrono::milliseconds(ERROR_SLEEP_INTERVAL_MSEC));
     }
 
     if (RecvBytes > 0) {
@@ -398,14 +265,78 @@ void SSLSocket::recvDataChunk()
 
 }
 
+void SSLSocket::doClientHandshake()
+{
+
+    //- setup new ssl connection
+    SSLConnection = SSL_new(SSLContext);
+    SSL_set_fd(SSLConnection, SocketFD);
+
+    //- reset handshake status/counter
+    Handshake->reset();
+
+    //- try connect
+    if (!Handshake->connectLoop(SSLConnection)) {
+        cout << "Client SSL connect failed." << endl;
+        exit(EXIT_FAILURE);
+    }
+
+    //- try handshake
+    if (!Handshake->HandshakeLoop(SSLConnection)) {
+        cout << "Client SSL handshake failed." << endl;
+        exit(EXIT_FAILURE);
+    }
+
+}
+
+void SSLSocket::doServerHandshakeLoop()
+{
+    //- setup new ssl connection
+    SSLConnection = SSL_new(SSLContext);
+    SSL_set_fd(SSLConnection, ServerAcceptedFD);
+
+    while (true) {
+        if (doServerHandshake()) { break; }
+    }
+
+}
+
+bool SSLSocket::doServerHandshake()
+{
+
+    //- reset handshake status/counter
+    Handshake->reset();
+
+    //- try accept
+    if (!Handshake->acceptLoop(SSLConnection)) {
+        return false;
+    }
+
+    //- try handshake
+    if (!Handshake->HandshakeLoop(SSLConnection)) {
+        return false;
+    }
+
+    return true;
+}
+
+void SSLSocket::renegotiate()
+{
+
+    //- reset handshake status/counter
+    Handshake->reset();
+
+    //- try renegotiate
+    if (!Handshake->renegotiateLoop(SSLConnection)) {
+        cout << "Client SSL renegotiate failed." << endl;
+        exit(EXIT_FAILURE);
+    }
+
+}
+
 void SSLSocket::resetRecvBuffer()
 {
     memset(RecvBuffer, 0, TMP_BUFFER_SIZE);
-}
-
-void SSLSocket::free()
-{
-    SSL_free(SSLConnection);
 }
 
 void SSLSocket::lock()
@@ -416,4 +347,14 @@ void SSLSocket::lock()
 void SSLSocket::unlock()
 {
     SendLock.unlock();
+}
+
+void SSLSocket::free()
+{
+    SSL_free(SSLConnection);
+}
+
+void SSLSocket::shutdown()
+{
+    Handshake->shutdown(SSLConnection);
 }

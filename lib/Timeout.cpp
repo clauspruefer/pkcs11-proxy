@@ -23,7 +23,7 @@ void Timeout::setTimeout(const unsigned int sec, const long nanosec) {
 
     DBG(20, "Timeout params - Seconds:" << sec << " Nanoseconds:" << nanosec);
 
-    int TimeoutFlags = Blocking == false ? TFD_NONBLOCK : 0;
+    const int TimeoutFlags = Blocking == false ? TFD_NONBLOCK : 0;
 
     TimerFD = timerfd_create(CLOCK_REALTIME, TimeoutFlags);
 
@@ -32,10 +32,11 @@ void Timeout::setTimeout(const unsigned int sec, const long nanosec) {
     TimeoutTimeNew.it_interval.tv_sec = 0;
     TimeoutTimeNew.it_interval.tv_nsec = 0;
 
-    int rc = timerfd_settime(TimerFD, 0, &TimeoutTimeNew, NULL);
+    const int rc = timerfd_settime(TimerFD, 0, &TimeoutTimeNew, NULL);
 
     if (rc == -1) {
         ERR("Timeout settime failed: errno:" << errno << " error:" << strerror(errno));
+        exit(EXIT_FAILURE);
     }
 
 }
@@ -47,12 +48,11 @@ int Timeout::getTimeoutFD()
 
 bool Timeout::checkTimeoutReached()
 {
-    uint64_t TimeoutResult = 0;
-    int rc = read(TimerFD, &TimeoutResult, sizeof(TimeoutResult));
 
-    if (rc == -1) {
-        DBG(200, "Read Error:" << errno << " ErrorString:" << strerror(errno));
-    }
+    uint64_t TimeoutResult = 0;
+    const int rc = read(TimerFD, &TimeoutResult, sizeof(TimeoutResult));
+
+    DBG(200, "Check Timeout rc:" << rc);
 
     return TimeoutResult > 0 ? true : false;
 }

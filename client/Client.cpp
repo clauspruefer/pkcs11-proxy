@@ -47,14 +47,22 @@ void Client::processClient(string ClientUUID, shared_ptr<Connection<Filedescript
 
             DBG(100, "Send data with UUID:" << ClientUUID << " FDNr:" << FDObj->MainFD << " to server:'" << SendData.str() << "'.");
 
+            bool SendError = false;
+
             ServerConn->lock();
-            ServerConn->sendDataChunk(SendData.str());
+
+            if (ServerConn->sendDataChunk(SendData.str()) == false) {
+                DBG(40, "SSL Socket send failed.");
+                SendError = true;
+            }
+
             ServerConn->unlock();
 
+            if (SendError == true) { break; }
         }
 
         if (FDObj->CloseConnection) {
-            DBG(40, "Client Socket close.");
+            DBG(40, "Client Socket close received.");
             break;
         }
 
@@ -70,9 +78,11 @@ void Client::processClient(string ClientUUID, shared_ptr<Connection<Filedescript
         FDObj->closeFD();
     }
 
-    DBG(40, "Remove fd object from unordered_map. Exit thread.");
+    DBG(40, "Remove fd object from unordered_map.");
 
     //- remove uuid from connection map
     ConHandler->erase(ClientUUID);
+
+    DBG(40, "Exit thread.");
 
 }

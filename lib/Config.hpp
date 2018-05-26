@@ -1,6 +1,8 @@
 #ifndef Config_hpp
 #define Config_hpp
 
+#include "Constant.hpp"
+
 #include <stdio.h>
 #include <malloc.h>
 #include <libxml/parser.h>
